@@ -1,414 +1,961 @@
-Declare Sub INS_CLS '00E0
-Declare Sub INS_RET '00EE
-Declare Sub INS_JMP '1NNN
-Declare Sub INS_CALL '2NNN
-Declare Sub INS_SKIPEQUAL '3XKK
-Declare Sub INS_SKIPNOTEQUAL '4XKK
-Declare Sub INS_SKIPEQUALREG '5XY0
-Declare Sub INS_LOADKK '6XKK
-Declare Sub INS_ADDKK '7XKK
-Declare Sub INS_VXEQVY '8XY0
-Declare Sub INS_VXORVY '8XY1
-Declare Sub INS_VXANDVY '8XY2
-Declare Sub INS_VXXORVY '8XY3
-Declare Sub INS_ADC '8XY4
-Declare Sub INS_SUBTRACT '8XY5
-Declare Sub INS_SHIFTR '8XY6
-Declare Sub INS_SUBN '8XY7
-Declare Sub INS_SHIFTL '8XYE
-Declare Sub INS_SKIPNOTEQUALREG '9XY0
-Declare Sub INS_LOADINDEX 'ANNN
-Declare Sub INS_JUMPREG 'BNNN
-Declare Sub INS_RNDANDKK 'CXKK
-Declare Sub INS_DISPLAY 'DXYN
-Declare Sub INS_KEYSKIP 'EX9E
-Declare Sub INS_KEYNOTSKIP 'EXA1
-Declare Sub INS_VXDELAY 'FX07
-Declare Sub INS_KEYWAIT 'FX0A
-Declare Sub INS_DELAYSET 'FX15
-Declare Sub INS_SOUNDSET 'FX18
-Declare Sub INS_IPLUSVX 'FX1E
-Declare Sub INS_ISPRITE 'FX29
-Declare Sub INS_BCDSTORE 'FX33
-Declare Sub INS_STOREREG 'FX55
-Declare Sub INS_LOADREG 'FX65
-Declare Sub INS_SCROLLN '00CN
-Declare Sub INS_HIRES 'F800
+/'Chip 8 Emulator in FreeBASIC
+Written by Blyss Sarania and Nobbs66
+License and Disclaimer
 
-Sub INS_HIRES 'F800
-	cpu.mode = "CHIP-8 HIRES"
-	cpu.xres = 63
-	cpu.yres = 63
-	ReDim Preserve display(0 To cpu.xres, 0 To cpu.yres)
-	sfx = screenx/(cpu.xres+1) 'compute the scale factor for X
-	sfy = screeny/(cpu.yres+1)' and Y
-	aspect = 0 ' not needed for hires
-	cpu.pc = &h02c0
-	If colorlines Then colorit
+This is my license and disclaimer document. By downloading and using any of my software you agree to be bound by it.
+This document supercedes any other license and disclaimer I may have made prior to its writing.
+
+
+License:
+
+    * The software is free, and you may use it as long as you like.
+    * You may redistribute the software, as long as this license is included.
+    * The source code to the software is included, you may modify it, improve it etc.
+    * You may make derivative works.
+    * Any derivative works you make must also include this license and disclaimer
+    * I respectfully request but do not require that should you improve the software or make
+	 a derivative work, you notify me of it. My contact information is generally included
+	in the program's source. (Blyss.Sarania@Gmail.com)
+
+I am pretty permissive with my stuff, but there ARE some things you can not do with it:
+
+    * You may NOT sell the software, in whole or part.
+    * You may NOT use the software to engage in or promote copyright infringement of any kind.
+    * You may NOT use the software to cause offense to, insult, defame, hurt or harass any person or corporate entity.
+    * You may NOT modify this license if you redistribute the software, whether you made changes to the application or not.
+    * You may NOT remove any current or previous contributors credit from the source or documentation,
+	even if you negated their work.
+
+
+Disclaimer:
+This software is provided AS IS without any warranty, including the implied ones for merchantability and/or fitness
+for a particular purpose. Use of any of the software is AT YOUR OWN RISK. You agree that should any
+negative effect result from the use of the software, you are solely responsible.
+
+________________________
+
+This document last updated at: 19:21 CST 3/28/2014
+
+Copyright 2014 Blyss Sarania'/
+
+#Include Once "fbgfx.bi" 'FB graphics library
+Using FB 'FB namespace
+#Include Once "file.bi" ' file manipulation
+#Include Once "string.bi" ' string manipulation
+#Include Once "fmod.bi" ' a whole audio library just for boop sounds!
+#Include Once "inc/crc32.bi"
+Dim Shared As UByte debug = 0' 1 to show debug, 0 to not show
+
+Type Chip8
+	mode As String = "CHIP-8"
+	drawflag As UByte 'is set to 1 when screen needs updated
+	opcount As ULongInt 'total number of ops. Reset when ops per second is changed
+	instruction As String 'current instruction in string form
+	opcode As UShort 'current instruction in binary
+	opcodePTR As UShort Pointer 'points to the opcode, had to do some weird magic to extract 2 bytes
+	memory(0 To 4095) As UByte 'RAM
+	V(0 To 15) As UByte 'Registers V0-VF
+	stack(0 To 15) As UShort 'The stack
+	sp As UShort 'Stack pointer
+	Index As UInteger 'Generally holds addresses, it's a register
+	PC As UShort 'Program counter
+	delayTimer As UByte 'counts to 0 at 60hz
+	soundTimer As UByte 'counts to 0 at 60hz, plays a beep when <> 0
+	key(0 To 15) As UByte 'Hex keypad
+	hp48(0 To 7) As UByte 'SCHIP registers
+	xres As UByte = 63 'display X
+	yres As UByte = 31'display y
+End Type
+
+Type controller
+	up As UByte
+	down As UByte
+	Left As UByte
+	Right As ubyte
+End Type
+
+Dim Shared As UByte record = 1
+Dim Shared As UInteger maxrewind = 0
+Dim Shared As UByte rewinding = 0
+Dim Shared As UByte speedunlock = 0 ' for turbo mode
+Dim Shared As UByte speedtoggle = 0 ' for turbo mode toggle
+Dim Shared As String game
+Dim Shared didlogo As UByte = 0
+Dim Shared As controller c
+Dim Shared As chip8 CPU 'main cpu
+Dim Shared As chip8 CPUrewind(1 To 300) ' rewind states
+Dim Shared display(0 To cpu.xres, 0 To cpu.yres) As UByte 'Monochrome display
+Dim Shared displayRewind(0 To cpu.xres, 0 To cpu.yres, 1 To 300) As ubyte ' display UByte
+Dim Shared dispcolor(1 To cpu.yres+1) As integer
+Dim Shared As fb.image Ptr screenbuff 'buffer for screen
+Dim Shared As fb.image Ptr debugbox 'debug box
+Dim Shared As Double start, chipstart 'start is used for opcode timing, chipstart for chip8 timers
+Dim Shared As Double rewindTimer = 0
+Dim Shared As UInteger VX, VY, KK 'Chip 8 vars
+Dim Shared As UInteger temp 'temp
+Dim Shared As UByte quirks = 1 'quirks, VIP = 1 and SCHIP = 0
+Dim Shared As UInteger screenx, screeny, ops 'screen size, and ops per second
+Dim Shared As UInteger foreR, foreG, foreB, backR, backG, backB 'screen colors
+Dim Shared As UInteger sfx, sfy 'scale factor for display
+Dim Shared As UInteger jumpcount ' counts consecutive jumps
+Dim Shared As UInteger msgcount = 0 ' message display time counter
+dim shared as string msg ' message passing
+Dim Shared As Single version = 1.10 'version
+Dim Shared As ULongInt frames
+Dim Shared As Double frametime, framestart
+Dim Shared As UByte dosave, doload
+Dim Shared As UByte hack = 0
+Dim Shared As UByte colorlines, aspect
+Dim Shared As UByte layout = 0
+Dim Shared As UByte booping = 0, mute = 0
+Dim Shared As Single soundplaytime ' make sound play at LEAST .1 seconds
+Dim Shared As Integer Ptr trackhandle 'SFX pointer
+Declare Sub keycheck 'check keys, this must be defined here because the following includes depend on it
+Declare Sub CAE 'cleanup and exit
+Declare Sub render 'render the display
+Declare Sub colorit
+Declare Sub playSFX(SFX As String) ' play the boop sound
+#Include Once "inc/c8 instruction set.bi" 'these must go here because depend on cpu type
+#Include Once "inc/decoder.bi" 'same
+
+
+Dim Shared As UByte font(0 To 79) => _ 'Chip 8 font set
+{&hF0, &h90, &h90, &h90, &hF0, _ ' 0
+&h20, &h60, &h20, &h20, &h70, _ ' 1
+&hF0, &h10, &hF0, &h80, &hF0, _ ' 2
+&hF0, &h10, &hF0, &h10, &hF0, _ ' 3
+&h90, &h90, &hF0, &h10, &h10, _ ' 4
+&hF0, &h80, &hF0, &h10, &hF0, _ ' 5
+&hF0, &h80, &hF0, &h90, &hF0, _ ' 6
+&hF0, &h10, &h20, &h40, &h40, _ ' 7
+&hF0, &h90, &hF0, &h90, &hF0, _ ' 8
+&hF0, &h90, &hF0, &h10, &hF0, _ ' 9
+&hF0, &h90, &hF0, &h90, &h90, _ ' A
+&hE0, &h90, &hE0, &h90, &hE0, _ ' B
+&hF0, &h80, &h80, &h80, &hF0, _ ' C
+&hE0, &h90, &h90, &h90, &hE0, _ ' D
+&hF0, &h80, &hF0, &h80, &hF0, _ ' E
+&hF0, &h80, &hF0, &h80, &h80}   ' F
+
+Dim Shared As UByte Sfont(0 To 159) => _ 'SCHIP font set
+{&hF0, &hF0, &h90, &h90, &h90, &h90, &h90, &h90, &hF0, &hF0,_ '0
+&h20, &h20, &h60, &h60, &h20, &h20, &h20, &h20, &h70, &h70,_ '1
+&hF0, &hF0, &h10, &h10, &hF0, &hF0, &h80, &h80, &hF0, &hF0,_ '2
+&hF0, &hF0, &h10, &h10, &hF0, &hF0, &h10, &h10, &hF0, &hF0,_ '3
+&h90, &h90, &h90, &h90, &hF0, &hF0, &h10, &h10, &h10, &h10,_ '4
+&hF0, &hF0, &h80, &h80, &hF0, &hF0, &h10, &h10, &hF0, &hF0,_ '5
+&hF0, &hF0, &h80, &h80, &hF0, &hF0, &h90, &h90, &hF0, &hF0,_ '6
+&hF0, &hF0, &h10, &h10, &h20, &h20, &h40, &h40, &h40, &h40,_ '7
+&hF0, &hF0, &h90, &h90, &hF0, &hF0, &h90, &h90, &hF0, &hF0,_ '8
+&hF0, &hF0, &h90, &h90, &hF0, &hF0, &h10, &h10, &hF0, &hF0,_ '9
+&hF0, &hF0, &h90, &h90, &hF0, &hF0, &h90, &h90, &h90, &h90,_ 'A
+&hE0, &hE0, &h90, &h90, &hE0, &hE0, &h90, &h90, &hE0, &hE0,_ 'B
+&hF0, &hF0, &h80, &h80, &h80, &h80, &h80, &h80, &hF0, &hF0,_ 'C
+&hE0, &hE0, &h90, &h90, &h90, &h90, &h90, &h90, &hE0, &hE0,_ 'D
+&hF0, &hF0, &h80, &h80, &hF0, &hF0, &h80, &h80, &hF0, &hF0,_ 'E
+&hF0, &hF0, &h80, &h80, &hF0, &hF0, &h80, &h80, &h80, &h80}  'F
+
+
+Declare Sub initcpu 'initialize CPU
+Declare Sub loadprog(ByVal pn As String = "") 'load ROM to memory
+Declare Sub loadini 'load teh ini
+Declare Sub about 'project information
+Declare Sub extract 'extract VX and VY from cpu.opcode
+Declare Sub saveState
+Declare Sub loadstate
+
+Sub playSFX (SFX As String)
+	If mute=0 Then
+		trackHandle = FSOUND_Stream_Open(SFX, FSOUND_LOOP_NORMAL, 0, 0 )
+		FSOUND_Stream_Play(1, trackHandle)
+		FSOUND_SetVolumeAbsolute(1, 255)
+	End If
 End Sub
-Sub INS_CLS '00E0
+
+Sub stopSFX
+	If FSOUND_IsPlaying(1) Then
+		FSOUND_Stream_Stop(trackHandle)
+		FSOUND_Stream_Close(trackHandle)
+	End If
+End Sub
+
+Sub colorit
+	ReDim Preserve dispcolor(1 To cpu.yres+1)
+	Dim As UByte r, g, b
+	For y As Integer = 1 To cpu.yres+1
+		recolor:
+		r = (Rnd * 255)
+		g = (Rnd * 255)
+		b = (Rnd * 255)
+		If r+g+b < 255 Then GoTo recolor
+		dispcolor(y) = RGB(r,g,b)
+	Next
+End Sub
+
+Sub saveState
+	Dim As UByte f = FreeFile
+	Open ExePath & "/states/" & game & "_cherry.state" For Output As #f
+	Print #f, cpu.drawflag
+	Print #f, cpu.opcount
+	Print #f, cpu.instruction
+	Print #f, cpu.opcode
+	Print #f, *cpu.opcodePTR
+	For i As Integer = 0 To 15
+		Print #f, cpu.v(i)
+	Next
+	For i As Integer = 0 To 15
+		Print #f, cpu.stack(i)
+	Next
+	Print #f, cpu.sp
+	Print #f, cpu.index
+	Print #f, cpu.PC
+	Print #f, cpu.delayTimer
+	Print #f, cpu.soundTimer
+	Print #f, cpu.xres
+	Print #f, cpu.yres
+	Print #f, start
+	Print #f, ops
+	Print #f, sfx
+	Print #f, sfy
 	For y As Integer = 0 To cpu.yres
 		For x As Integer = 0 To cpu.xres
-			display(x,y) = 0
+			Print #f, display(x,y)
 		Next
 	Next
-	cpu.drawflag=1
+	Close #f
+	f = FreeFile
+	Open ExePath & "/states/" & game & "_cherry.ram" For Binary As #f
+	Put #f, 1, cpu.memory()
+	Close #f
+	start = Timer
+	cpu.opcount = 0
 End Sub
 
-Sub INS_RET '00EE
-	cpu.pc = cpu.stack(cpu.sp)
-	cpu.stack(cpu.sp) = 0
-	cpu.sp-=1
+Sub loadstate
+	initcpu
+	Dim As UByte f = FreeFile
+	Open ExePath & "/states/" & game & "_cherry.state" For input As #f
+	Input #f, cpu.drawflag
+	Input #f, cpu.opcount
+	Input #f, cpu.instruction
+	Input #f, cpu.opcode
+	Input #f, *cpu.opcodePTR
+	For i As Integer = 0 To 15
+		Input #f, cpu.v(i)
+	Next
+	For i As Integer = 0 To 15
+		Input #f, cpu.stack(i)
+	Next
+	Input #f, cpu.sp
+	Input #f, cpu.Index
+	Input #f, cpu.PC
+	Input #f, cpu.delayTimer
+	Input #f, cpu.soundTimer
+	Input #f, cpu.xres
+	Input #f, cpu.yres
+	Input #f, start
+	Input #f, ops
+	Input #f, sfx
+	Input #f, sfy
+	For y As Integer = 0 To cpu.yres
+		For x As Integer = 0 To cpu.xres
+			input #f, display(x,y)
+		Next
+	Next
+	Close #f
+	f = FreeFile
+	Open ExePath & "/states/" & game & "_cherry.ram" For Binary As #f
+	Get #f, 1, cpu.memory()
+	Close #f
+	start = Timer
+	cpu.opcount = 0
 End Sub
 
-Sub INS_JMP '1NNN
-	cpu.pc = cpu.opcode And &h0FFF
-End Sub
-
-Sub INS_CALL '2NNN
-	cpu.sp+=1
-	cpu.stack(cpu.sp)=cpu.pc
-	cpu.pc = cpu.opcode And &h0FFF
-End Sub
-
-Sub INS_SKIPEQUAL '3XKK
-	KK = cpu.opcode And &h00FF
-	If cpu.v(vx) = kk Then cpu.pc+=2
-End Sub
-
-Sub INS_SKIPNOTEQUAL '4XKK
-	KK = cpu.opcode And &h00FF
-	If cpu.v(vx) <> kk Then cpu.pc+=2
-End Sub
-
-Sub INS_SKIPEQUALREG '5XY0
+Sub extract 'extract VX and VY from cpu.opcode
+	Vx = cpu.opcode And &H0F00
+	Vx = vx Shr 8
 	vy = cpu.opcode And &h00F0
 	vy = vy Shr 4
-	If cpu.v(vx) = cpu.v(vy) Then cpu.pc+=2
 End Sub
 
-Sub INS_LOADKK '6XKK
-	KK = cpu.opcode And &h00FF
-	cpu.v(vx) = KK
+Sub about 'Display about section when HOME key is pressed
+	Cls
+	Dim cherry As fb.image Ptr
+	Dim banner As fb.image Ptr
+	cherry = ImageCreate(128,148,RGB(0,0,0))
+	banner = ImageCreate(400,148,RGB(0,0,0))
+	BLoad ("res/cherry.bmp",cherry)
+	BLoad ("res/banner.bmp",banner)
+	Draw String (0,0), "Project Cherry v" & Format(version, "0.00")
+	Draw String (0,10), "_____________________"
+	Draw String (0,30), "Project Cherry is a Chip8 emulator written in FreeBASIC."
+	Draw String (0,50), "CHIP-8 is an interpreted programming language, developed by Joseph Weisbecker."
+	Draw String (0,70), "It was initially used on the COSMAC VIP and Telmac 1800 8-bit microcomputers in"
+	Draw String (0,90), "the mid 1970s. CHIP-8 programs are run on a CHIP-8 virtual machine or emulator."
+	Draw String (0,150), "Project Cherry was written by:"
+	Draw String (0,160), "______________________________"
+	Draw String (0,180), "Blyss Sarania"
+	Draw String (0,200), "Nobbs66"
+	Put (screenx-128,screeny-148), cherry, Trans
+	Put (0,screeny-168), banner, Trans
+	Draw String (0, screeny-220), "___________________________________________________________________________"
+	Draw String (0, screeny-200), "FMOD audio library copyright © Firelight Technologies Pty, Ltd., 1994-2014."
+	Draw String (0, screeny-190), "http://www.fmod.org/"
+	Draw String (0, screeny-180), "FMOD is free for non-commercial use"
+	Draw String (0, screeny-20), "Compiled on: " + Str(__DATE__) + " at " + Str(__TIME__)
+	Draw String (0, screeny-10), "Compiled with FreeBASIC version " + Str(__FB_VER_MAJOR__) + "." + Str(__FB_VER_MINOR__) + "." + Str(__FB_VER_PATCH__)
+	ImageDestroy(cherry)
+	ImageDestroy(banner)
+	Sleep 'wait for keypress
+	cpu.drawflag = 1 'reset drawflag since we cleared the screen
+End Sub
+
+Sub loadini
+	Dim f As Integer = FreeFile
+	If Not FileExists(ExePath & "\cherry.ini") Then
+		Open ExePath & "\cherry.ini" For Output As #f 'Write a new INI file since it got deleted or something
+		Print #f, 640 'screenX
+		Print #f, 480 'screenY
+		Print #f, 360 'Ops per second goal
+		Print #f, 255 'Foreground Red
+		Print #f, 255 'Foreground Green
+		Print #f, 255 'Foreground Blue
+		Print #f, 0 'Background Red
+		Print #f, 0 'Background Green
+		Print #f, 0 'Background Blue
+		Print #f, 0 '1 for random color lines
+		Print #f, 1' 1 for aspect correct scaling
+		Print #f, 0 'mute on
+		Print #f, 0 'record on
+		Close #f
+	EndIf
+	Open ExePath & "\cherry.ini" For Input As #f
+	Input #f, screenx
+	Input #f, screeny
+	Input #f, ops
+	Input #f, foreR
+	Input #f, foreG
+	Input #f, foreB
+	Input #f, backR
+	Input #f, backG
+	Input #f, backB
+	Input #f, Colorlines
+	input #f, aspect
+	Input #f, mute
+	Input #f, record
+	Close #f
+	If screenx < 640 Then screenx = 640
+	If screeny < 480 Then screeny = 480
 End Sub
 
 
-Sub INS_ADDKK '7XKK
-	KK = cpu.opcode And &h00FF
-	cpu.v(vx)+= kk
-End Sub
 
-Sub INS_VXEQVY '8XY0
-	cpu.v(vx) = cpu.v(vy)
-End Sub
+Sub keycheck 'Check for keypresses, and pass to the emulated CPU
+	Dim As UInteger rewindpoint = 1
+	For i As Integer = 0 To 15
+		cpu.key(i) = 0
+	Next
+	If MultiKey(SC_UP) Or MultiKey(SC_W) Then c.up = 1 Else c.up = 0
+	If MultiKey(SC_DOWN) Or MultiKey(SC_S) Then c.down = 1 Else c.down = 0
+	If MultiKey(SC_LEFT) Or MultiKey(SC_A) Then c.left = 1 Else c.left = 0
+	If MultiKey(SC_RIGHT) Or MultiKey(SC_D) Then c.right = 1 Else c.right = 0
+	If layout = 0 Then
+		If MultiKey(SC_1) Then cpu.key(1) = 1
+		If MultiKey(SC_2) Then cpu.key(2) = 1
+		If MultiKey(SC_3) Then cpu.key(3) = 1
+		If MultiKey(SC_4) Then cpu.key(12) = 1
+		If MultiKey(sc_r) Then cpu.key(13) = 1
+		If MultiKey(sc_a) Then cpu.key(7) = 1
+		If MultiKey(sc_s) Then cpu.key(8) = 1
+		If MultiKey(SC_d) Then cpu.key(9) = 1
+		If MultiKey(sc_f) Then cpu.key(14) = 1
+		If MultiKey(SC_q) Then cpu.key(4) = 1
+		If MultiKey(SC_w) Then cpu.key(5) = 1
+		If MultiKey(SC_e) Then cpu.key(6) = 1
+		If MultiKey(SC_z) Then cpu.key(10) = 1
+		If MultiKey(SC_x) Then cpu.key(0) = 1
+		If MultiKey(SC_c) Then cpu.key(11) = 1
+		If MultiKey(SC_v) Then cpu.key(15) = 1
+	End If
+	If layout = 1 Then
+		If c.left Then cpu.key(7) = 1
+		If c.right Then cpu.key(8) = 1
+		If c.up Then cpu.key(3) = 1
+		If c.down Then cpu.key(6) = 1
+	EndIf
+	If layout = 2 Then
+		If c.left Then cpu.key(5) = 1
+		If c.right Then cpu.key(6) = 1
+		If c.up Then cpu.key(4) = 1
+		If c.down Then cpu.key(7) = 1
+	EndIf
+	If layout = 3 Then
+		If c.left Then cpu.key(4) = 1
+		If c.right Then cpu.key(6) = 1
+	EndIf
+	If layout = 4 Then
+		If c.up Or c.left Then cpu.key(1) = 1
+		If c.down Or c.right Then cpu.key(4) = 1
+	EndIf
+	If layout = 5 Then
+		If c.left Then cpu.key(4) = 1
+		If c.right Then cpu.key(6) = 1
+		If c.up Then cpu.key(5) = 1
+	EndIf
+	If layout = 6 Then
+		If c.left then cpu.key(3) = 1
+		If c.right then cpu.key(12) = 1
+		If c.up then cpu.key(10) = 1
+	EndIf
+	If MultiKey(SC_ESCAPE) Then 'quit
+		CAE
+	EndIf
+    If MultiKey(SC_J) Then 'switch to CHIP-8 (VIP) mode
+        quirks = 1
+    Endif
+    If MultiKey(SC_K) Then 'switch to SCHIP mode
+        quirks = 0
+    Endif
+	If MultiKey(SC_HOME) Then 'about
+		about
+		Cls
+	EndIf
 
-Sub INS_VXORVY '8XY1
-	cpu.v(vx) Or = cpu.v(vy)
-    If quirks = 1 Then cpu.v(&hF) = 0 Else
-End Sub
+	If MultiKey(SC_PAGEUP) Then 'increase ops per second
+		ops + = 30
+		start = Timer
+		cpu.opcount = 0
+		While MultiKey(SC_PAGEUP)
+			Sleep 15
+		Wend
+	EndIf
 
-Sub INS_VXANDVY '8XY2
-	cpu.v(vx) And = cpu.v(vy)
-    If quirks = 1 Then cpu.v(&hF) = 0 Else
-End Sub
+	If MultiKey(SC_PAGEDOWN) Then 'decrease ops per second
+		ops - = 30
+		start = Timer
+		cpu.opcount = 0
+		While MultiKey(SC_PAGEDOWN)
+			Sleep 15
+		Wend
+	EndIf
 
-Sub INS_VXXORVY '8XY3
-	cpu.v(vx) Xor = cpu.v(vy)
-    If quirks = 1 Then cpu.v(&hF) = 0 Else
-End Sub
-
-Sub INS_ADC '8XY4
-    cpu.v(vx) += cpu.v(vy)
-	If cpu.v(vx) >= cpu.v(vy) Then cpu.v(&hF) = 0 Else cpu.v(&hF) = 1
-End Sub
-
-Sub INS_SUBTRACT '8XY5
-	If cpu.v(vx) >= cpu.v(vy) Then temp = 1 Else temp = 0
-    cpu.v(vx) -= cpu.v(vy)
-    cpu.v(&hF) = temp
-
-End Sub
-
-Sub INS_SHIFTR '8XY6
-    If quirks = 1 Then cpu.v(vx) = cpu.v(vy) Else cpu.v(vx) = cpu.v(vx)
-	If Bit(cpu.v(vx),0) Then temp = 1 Else temp = 0
-	cpu.v(vx) = cpu.v(vx) Shr 1
-    cpu.v(&hf) = temp
-End Sub
-
-Sub INS_SUBN '8XY7
-	If cpu.v(vy) >= cpu.v(vx) Then temp = 1 Else temp = 0
-	cpu.v(vx) = cpu.v(vy) - cpu.v(vx)
-    cpu.v(&hf) = temp
-End Sub
-
-Sub INS_SHIFTL '8XYE
-    If quirks = 1 Then cpu.v(vx) = cpu.v(vy) Else cpu.v(vx) = cpu.v(vx)
-	If Bit(cpu.v(vx),7) Then temp = 1 Else temp = 0
-	cpu.v(vx) = cpu.v(vx) Shl 1
-    cpu.v(&hf) = temp
-End Sub
-
-Sub INS_SKIPNOTEQUALREG '9XY0
-	If cpu.v(vx) <> cpu.v(vy) Then cpu.pc+=2
-End Sub
-
-Sub INS_LOADINDEX 'ANNN
-	cpu.index = cpu.opcode And &h0fff
-End Sub
-
-Sub INS_JUMPREG 'BNNN
-	cpu.pc = (cpu.opcode And &h0FFF) +cpu.v(0)
-End Sub
-
-Sub INS_RNDANDKK 'CXKK
-	KK = cpu.opcode And &h00FF
-	cpu.v(vx) = (CByte(Rnd*255)) And kk
-End Sub
-
-Sub INS_DISPLAY 'DXYN
-	Dim n As UShort
-	Dim p As UShort
-	Dim p2 As UShort
-	n = cpu.opcode And &h000F
-	cpu.v(&hf) = 0
-	If n = 0 Then n = 16
-	If n < 16 Or cpu.mode = "CHIP-8" Then 'normal sprite
-		For y As Integer = 0 To n-1
-			p = cpu.memory(cpu.index+y)
-			For x As Integer = 0 To 7
-				If (p And (&h80 Shr x)) Then
-				If hack <> 0 Then
-						If cpu.v(vx)+x > cpu.xres Then Exit For
-						If hack <> 2 and cpu.v(vy)+y > cpu.yres Then Exit for
-				EndIf
-					If display((cpu.v(vx)+x) And cpu.xres, (cpu.v(vy)+y) And cpu.yres) Then cpu.v(&hf) = 1
-					 display((cpu.v(vx)+x) And cpu.xres, (cpu.v(vy)+y)And cpu.yres) Xor = 1
-				EndIf
+	If MultiKey(SC_F3) Then 'savestate
+		cpu.soundTimer = 30
+		msgcount = 2000
+		msg = "State saved sucessfully!"
+		dosave = 1
+		While MultiKey(SC_F3)
+			Sleep 15
+		Wend
+	EndIf
+	
+	While MultiKey(SC_F9) 'rewind 
+		If record = 0 Then Exit while
+		rewinding = 1
+		If rewindpoint <= maxrewind-1 Then
+		cpu = cpurewind(rewindpoint)
+		For y As Integer = 0 To cpu.yres
+			For x As Integer = 0 To cpu.xres
+				display(x,y) = displayRewind(x,y,rewindpoint)
 			Next
 		Next
+		render
+		Sleep 100,1
+		rewindpoint+=1
+		End if
+	Wend
+	rewinding = 0
+	
+	If MultiKey(SC_F10) Then 'record toggle
+		If record = 0 Then record = 1 Else record = 0
+	EndIf
+	While MultiKey(SC_F10): Sleep 15,1: wend
+
+
+	If MultiKey(SC_F5) Then 'load state
+		If Not FileExists(ExePath & "/states/" & game & "_cherry.state") Or Not FileExists(ExePath & "/states/" & game & "_cherry.ram") Then
+			cpu.soundTimer = 30
+			msgcount = 2000
+			msg = "No save state found!"
+		Else
+			cpu.soundTimer = 30
+			doload = 1
+			msgcount = 2000
+			msg = "State loaded sucessfully!"
+		EndIf
+		While MultiKey(SC_F5)
+			Sleep 15
+		Wend
 	End If
 
-	If n = 16 And cpu.mode <> "CHIP-8" Then '16x16 sprite. More complicated. This took forever to figure out!
-		For y As Integer = 0 To 15
-			p = cpu.memory(cpu.index+(y*2))
-			p2 = cpu.memory(cpu.index+(y*2)+1)
-			For x As Integer = 0 To 15
-				If (p Shl 8 + p2 And (&h8000 Shr x)) Then
-				If hack = 1 Then
-						If cpu.v(vx)+x > cpu.xres Or cpu.v(vy)+y > cpu.yres Then Exit for
-				EndIf
-					If display((cpu.v(vx)+x) And (cpu.xres), (cpu.v(vy)+y) And (cpu.yres)) Then cpu.v(&hf) = 1
-					display((cpu.v(vx)+x) And (cpu.xres),(cpu.v(vy)+y) And (cpu.yres)) Xor = 1 ' XOR the pixel onto the screen. If a pixel was already on, it gets turned off
-				EndIf
-			Next
-		Next
+	If MultiKey(SC_P) Then ' mute toggle
+		If mute = 1 Then mute = 0 Else mute = 1
+		cpu.soundtimer = 15
+		While MultiKey(SC_P)
+			Sleep 15
+		Wend
 	EndIf
-	cpu.drawflag=1
-End Sub
 
-Sub INS_KEYSKIP 'EX9E
-	If cpu.key(cpu.v(vx)) <> 0 Then cpu.pc+=2
-End Sub
+	If MultiKey(sc_tilde) Then 'debug info toggle
+		If debug = 1 Then debug = 0 Else debug = 1
+		cpu.drawflag = 1
+		While MultiKey(SC_TILDE)
+			Sleep 15
+		Wend
+	EndIf
 
-Sub INS_KEYNOTSKIP 'EXA1
-	If cpu.key(cpu.v(vx)) = 0 Then cpu.pc+=2
-End Sub
+	If MultiKey(SC_TAB) Then 'Engage turbo (while tab is held)
+		speedunlock = 1
+	EndIf
 
-Sub INS_VXDELAY 'FX07
-	cpu.V(vx) = cpu.delayTimer
-End Sub
+	If speedunlock = 1 And (Not MultiKey(SC_TAB)) Then 'Disengage turbo
+		speedunlock = 0
+		start = timer
+		cpu.opcount = 0
+	EndIf
 
-Sub INS_KEYWAIT 'FX0A
-	Do
-		Sleep 250,1
-		keycheck
-		For i As Integer = 0 To 15
-			If cpu.key(i) <> 0 Then
-				cpu.v(vx) = i
-				Exit Do
-			EndIf
+	If MultiKey(SC_F4) Then 'Toggle turbo
+		If speedtoggle = 0 Then
+			speedtoggle = 1
+		Else
+			speedtoggle = 0
+			start = Timer
+			cpu.opcount = 0
+		EndIf
+		While MultiKey(SC_F4)
+			Sleep 1
+		Wend
+	EndIf
+
+End Sub
+Sub render
+	Dim As Single fps = frames / (Timer - framestart)
+	If fps > 60 Then Exit Sub
+	frames+=1
+	Dim As Double renderstart = Timer
+	Dim As UInteger offsety = 0
+	If aspect = 1 Then offsety = screeny/6
+	Dim As integer clr = rgb(ForeR,foreG,ForeB)
+	screenbuff = ImageCreate(screenx,screeny,RGB(backR,backG,backB))
+	For y As UInteger =  0 To cpu.yres
+		If colorlines = 1 Then clr = dispcolor(y)
+		For x As UInteger = 0 To cpu.xres
+			If display(x,y) = 1 Then Line screenbuff, (x*sfx,(y*sfy)+offsety)-(x*sfx+sfx,(y*sfy+sfy)+offsety), clr, BF
 		Next
-		 render
-	Loop
-End Sub
-
-Sub INS_DELAYSET 'FX15
-	cpu.delaytimer = cpu.v(vx)
-End Sub
-
-Sub INS_SOUNDSET 'FX18
-	cpu.soundTimer = cpu.V(vx)
-End Sub
-
-Sub INS_IPLUSVX 'FX1E
-	cpu.index = cpu.index + cpu.v(vx)
-End Sub
-
-Sub INS_ISPRITE 'FX29
-	cpu.index = (cpu.v(vx)*5)
-	cpu.drawflag=1
-End Sub
-
-Sub INS_BCDSTORE 'FX33
-	Dim As string hundreds, tens, ones
-	Dim As integer temp
-	temp = cpu.v(vx)
-	If temp > 99 Then hundreds = Left(Str(temp),1)
-	ones = right(Str(temp),1)
-	If temp > 9 Then tens = Left(Right(Str(temp),2),1)
-	cpu.memory(cpu.index) = CInt(hundreds)
-	cpu.memory(cpu.index+1) = CInt(tens)
-	cpu.memory(cpu.index+2) = CInt(ones)
-End Sub
-
-Sub INS_STOREREG 'FX55
-	For I As Integer = 0 To vx
-		cpu.memory(cpu.index + i) = cpu.v(i)
 	Next
-    If quirks = 1 Then cpu.index+= vx+1 Else 
+	If rewinding = 1 And (frames Mod 3 = 0 Or frames Mod 6 = 0) Then
+	Dim As fb.image Ptr rewind = ImageCreate(32,18, RGB(0,0,0))
+	BLoad ("res/rewind.bmp",rewind)
+	put screenbuff, (1,1), rewind, pset
+	end If
+	
+	If record = 1 And rewinding = 0 Then
+		Dim As fb.image Ptr record = ImageCreate(32,18, RGB(0,0,0))
+		BLoad("res/record.bmp", record)
+		Put screenbuff, (1,1), record, PSet
+	EndIf
+	Put (0,0),screenbuff,PSet
+	ImageDestroy(screenbuff)
+	frametime = Timer-renderstart
 End Sub
 
-Sub INS_LOADREG 'FX65
-	For i As Integer = 0 To vx
-		cpu.v(i) = cpu.memory(cpu.index+i)
+
+Sub initcpu 'initialize the CPU to power on state
+	For i As Integer = 0 To 4095
+		cpu.memory(i) = 0
 	Next
-	 If quirks = 1 Then cpu.index+= vx+1 Else 
-End Sub
-Sub INS_SCROLLN '00CN
-	Dim As UByte N
-	n = cpu.opcode And &h000F
-	For i As Integer = 1 To N
-		For y As Integer = cpu.yres To 1 Step -1
-			For x As Integer = 0 To cpu.xres
-				display(x,y) = display (x,y-1)
-			Next
-		Next
+	For i As Integer = 0 To 15
+		CPU.stack(i) = 0
+		CPU.key(i) = 0
+		cpu.V(i) = 0
+	Next
+	CPU.sp = 0
+	CPU.index = 0
+	CPU.PC = &h200
+	For y As Integer = 0 To cpu.yres
 		For x As Integer = 0 To cpu.xres
-			display(x,0) = 0
-		Next
-		cpu.drawflag = 1
-	Next
-End Sub
-
-Sub INS_RIGHTSCR '00FB
-
-	For y As Integer = 0 To cpu.yres
-		For x As Integer = cpu.xres To 4 Step -1
-			display(x,y) = display (x-4,y)
-		Next
-		For x As Integer = 3 to 0 Step -1
 			display(x,y) = 0
 		Next
 	Next
-	cpu.drawflag = 1
-End Sub
-
-Sub INS_LEFTSCR '00FC
-	For y As Integer = 0 To cpu.yres
-		For x As Integer = 0 To cpu.xres-4
-			display(x,y) = display (x+4,y)
-		Next
-		For x As Integer = cpu.xres-3 To cpu.xres
-			display(x,y) = 0
-		Next
+	CPU.delaytimer = 0
+	CPU.soundtimer = 0
+	For i As Integer = 1 To 300
+		CPUrewind(i) = CPU
 	Next
-	cpu.drawflag = 1
-End Sub
-
-Sub INS_EXCHIP '00FD
-	CAE
-End Sub
-Sub INS_DISEXT '00FE
-	cpu.mode = "CHIP-8"
-	cpu.xres = 63
-	cpu.yres = 31
-	ReDim Preserve display(0 To cpu.xres, 0 To cpu.yres)
-	sfx = screenx/(cpu.xres+1) 'compute the scale factor for X
-	sfy = iif(aspect = 0, screeny/(cpu.yres+1), sfx) ' and Y
-	If colorlines Then colorit
-End Sub
-Sub INS_ENEXT  '00FF
-	cpu.mode = "SCHIP"
-	cpu.xres = 127
-	cpu.yres = 63
-	ReDim Preserve display(0 To cpu.xres, 0 To cpu.yres)
-	sfx = screenx/(cpu.xres+1) 'compute the scale factor for X
-	sfy = iif(aspect = 0, screeny/(cpu.yres+1), sfx) ' and Y
-	If colorlines Then colorit
-	ops*=2
-	start = timer
-	cpu.opcount = 0
-End Sub
-Sub INS_TENSPRITE 'FX30
-	cpu.index = (cpu.v(vx)*10)+80
-	cpu.drawflag=1
-End Sub
-
-Sub INS_STORERPL 'FX75
-	For i As Integer = 0 To vx
-		cpu.hp48(i) = cpu.V(i)
+	'Copy the font into memory
+	For i As Integer = 0 To 79
+		cpu.memory(i) = font(i)
+	Next
+	For i As Integer = 0 To 159
+		cpu.memory(i+80) = Sfont(i)
 	Next
 End Sub
-Sub INS_READRPL 'FX85
-	For i As Integer = 0 To vx
-		cpu.V(i) = cpu.hp48(i)
-	next
-End Sub
-Sub INS_DISMEGAMODE
-	cpu.mode = "CHIP-8"
-	cpu.xres = 63
-	cpu.yres = 31
-	ReDim Preserve display(0 To cpu.xres, 0 To cpu.yres)
-	sfx = screenx/(cpu.xres+1) 'compute the scale factor for X
-	sfy = iif(aspect = 0, screeny/(cpu.yres+1), sfx) ' and Y
-	If colorlines Then colorit
-End Sub
-Sub INS_ENMEGAMODE
-	cpu.mode = "MEGA"
-	cpu.xres = 255
-	cpu.yres = 191
-	ReDim Preserve display(0 To cpu.xres, 0 To cpu.yres)
-	sfx = screenx/(cpu.xres+1) 'compute the scale factor for X
-	sfy = iif(aspect = 0, screeny/(cpu.yres+1), sfx) ' and Y
-	ops*=2
-	start = timer
-	cpu.opcount = 0
-End Sub
-Sub INS_LHDI
 
-End Sub
-Sub INS_LOADCOLORS
+Sub loadprog(ByVal pn As String = "") 'Load a ROM
+	Dim As String progname, shpname, onechr, crcgen, hcrc
+	Dim As UInteger crc
+	If pn <> "" Then progname = pn: GoTo gotname
+	If Command(1) <> "" Then'See if we got a filename from the command line/drag and drop/double click
+		progname = Command(1)
+		GoTo gotname
+	End If
+	Print "Note: ROM must be in EXEPATH, else use drag and drop to load it!)"
+	Input "Program to run (compiled, no header): ", progname 'Get a filename from user
+	progname = ExePath & "\" & progname
 
-End Sub
-Sub INS_SPRITEWIDTH
+	gotname:
+	If progname = "" Or Not FileExists(progname) Then 'Break if no such filename
+		Cls
+		Print "File not found: " & progname
+		Sleep 3000
+		CAE
+	EndIf
 
-End Sub
-Sub INS_SPRITEHEIGHT
+	'remove path from filename, so we can put it in the Window title
+	For z As Integer = 1 To Len(progname) Step 1
+		onechr = Right(Left(progname,z),1)
+		If onechr = "\" Then
+			onechr = ""
+			shpname = ""
+		EndIf
+		shpname = shpname & onechr
+	Next
+	
+	game = Left(shpname, Len(shpname)-4)
 
-End Sub
-Sub INS_SETALPHA
 
-End Sub
-Sub INS_PLAYSOUND
 
-End Sub
-Sub INS_STOPSOUND
+	If pn <> CurDir & ("/res/logo.bin") Then WindowTitle "Project Cherry: " & shpname Else WindowTitle "Project Cherry"' set window title
+	Dim As Integer f = FreeFile
+	Open progname For Binary As #f
+	Dim As UInteger maxlen
+	If Lof(f) > 4095-512 Then maxlen = 4095-512 Else maxlen = Lof(f)
+	For i As Integer = 0 To maxlen
+		Get #f, i+1, cpu.memory(i+512), 1 ' file is 1 indexed, array is 0 indexed
+			crcgen = crcgen & Str(cpu.memory(i+512)) 
+	Next
+	Close #f
+	crc = 0
+	If pn <> CurDir & ("/res/logo.bin") Then 
+     crc = crc32(crc, crcgen, Len(crcgen))
+	End If
+	hcrc = Hex(crc)
+	If hcrc = "13C1BE05" Or hcrc = "93E9C8A" Then layout = 1
+	If hcrc = "4E90ABFF" Then layout = 2
+	If hcrc = "8DD7E376" Then layout = 3
+	If hcrc = "8DDD4717" Then layout = 3
+	If hcrc = "7B955E7D" Then layout = 4
+	If hcrc = "9BCB285E" Then layout = 5
+	If hcrc = "38552352" Then layout = 6
 
+	'Games that need wrapping off:
+	If hcrc = "B840A433" Then hack = 1
+	If hcrc = "5224DEF8" Then hack = 1
+	If hcrc = "617EC665" Then hack = 1
+	If hcrc = "884AFD91" Then hack = 1
+	If hcrc = "1944BA37" Then hack = 1
+	If hcrc = "74AC5185" Then hack = 1
+	If hcrc = "2878E5F7" Then hack = 2
 End Sub
-Sub INS_BLENDMODE
 
+
+Sub CAE 'Cleanup and Exit
+	While InKey <> "": wend
+	FSOUND_Close
+	Cls
+	Close
+	Draw String ((screenx/2) - 64,screeny/2), "Emulation ended.", RGB(255,0,255)
+	Draw String ((screenx/2) - 88,(screeny/2) + 10), "Press any key to exit.", RGB(255,0,255)
+	Sleep
+	End
 End Sub
-Sub INS_SCROLLND
-	Dim As UByte N
-	n = cpu.opcode And &h000F
-	For i As Integer = 1 To N
-		For y As Integer = 63 To 0 Step +1
-			For x As Integer = 0 To 127
-				display(x,y) = display (x,y+1)
+
+
+'Program starts here
+'-----------------------------------------------------------------------------------------------------------
+Randomize Timer 'Feed the random number generator the timer as a seed
+loadini
+ScreenRes screenx,screeny,32
+If colorlines Then colorit
+sfx = screenx/(cpu.xres+1) 'compute the scale factor for X
+sfy = iif(aspect = 0, screeny/(cpu.yres+1), sfx) ' and Y
+FSOUND_Init(44100, 8, 0)
+initcpu
+if debug = 1 then: didlogo=1: loadprog: GoTo skiplogo:EndIf
+ChDir ExePath
+ChDir ".."
+loadprog CurDir & ("/res/logo.bin")
+skiplogo:
+ChDir ExePath
+ChDir ".."
+Cls
+start = Timer
+chipstart = Timer
+framestart = Timer
+
+
+'main loop
+Do
+	cpu.opcount+=1
+
+	While ((cpu.opcount / ops > Timer - start) And speedunlock = 0 And speedtoggle = 0) Or (cpu.opcount / (10000) > Timer - start) 'limit ops per sec. 10kops with turbo on.
+		Sleep 1
+	Wend
+	cpu.opcodePTR = @cpu.memory(cpu.pc) 'Yep, this is weird. But I couldn't concatenate them the normal way
+	cpu.opcode = (LoByte(*cpu.opcodePTR) Shl 8 ) + HiByte(*cpu.opcodePTR) 'More of the weirdness mentioned above
+	decode(cpu.opcode)
+	cpu.pc+=2 'We increment the PC out here, after decoding, but before executing. This ensures it will be right even after jumps
+	keycheck 'check for key presses
+	extract ' pull VX and VY out of cpu.opcode
+	Select Case cpu.instruction
+		Case "HIRES"
+			INS_HIRES
+
+		Case "CLS"
+			INS_CLS
+
+		Case "RET"
+			INS_RET
+
+		Case "JMP"
+			If jumpcount > (ops*3) Then CAE
+			INS_JMP
+
+		Case "CALL"
+			INS_CALL
+
+		Case "SKIPEQUAL"
+			INS_SKIPEQUAL
+
+		Case "SKIPNOTEQUAL"
+			INS_SKIPNOTEQUAL
+
+		Case "SKIPEQUALREG"
+			INS_SKIPEQUALREG
+
+		Case "LOADKK"
+			INS_LOADKK
+
+		Case "ADDKK"
+			INS_ADDKK
+
+		Case "VXEQVY"
+			INS_VXEQVY
+
+		Case "VXORVY"
+			INS_VXORVY
+
+		Case "VXANDVY"
+			INS_VXANDVY
+
+		Case "VXXORVY"
+			INS_VXXORVY
+
+		Case "ADC"
+			INS_ADC
+
+		Case "SUBTRACT"
+			INS_SUBTRACT
+
+		Case "SHIFTR"
+			INS_SHIFTR
+
+		Case "SUBN"
+			INS_SUBN
+
+		Case "SHIFTL"
+			INS_SHIFTL
+
+		Case "SKIPNOTEQUALREG"
+			INS_SKIPNOTEQUALREG
+
+		Case "LOADINDEX"
+			INS_LOADINDEX
+
+		Case "JUMPREG"
+			INS_JUMPREG
+
+		Case "RNDANDKK"
+			INS_RNDANDKK
+
+		Case "DISPLAY"
+			INS_DISPLAY
+
+		Case "KEYSKIP"
+			INS_KEYSKIP
+
+		Case "KEYNOTSKIP"
+			INS_KEYNOTSKIP
+
+		Case "VXDELAY"
+			INS_VXDELAY
+
+		Case "KEYWAIT"
+			INS_KEYWAIT
+
+		Case "DELAYSET"
+			INS_DELAYSET
+
+		Case "SOUNDSET"
+			INS_SOUNDSET
+
+		Case "IPLUSVX"
+			INS_IPLUSVX
+
+		Case "ISPRITE"
+			INS_ISPRITE
+
+		Case "BCDSTORE"
+			INS_BCDSTORE
+
+		Case "STOREREG"
+			INS_STOREREG
+
+		Case "LOADREG"
+			INS_LOADREG
+
+		Case "SCROLLN"
+			INS_SCROLLN
+
+		Case "RIGHTSCR"
+			INS_RIGHTSCR
+
+		Case "LEFTSCR"
+			INS_LEFTSCR
+
+		Case "EXCHIP"
+			INS_EXCHIP
+
+		Case "DISEXT"
+			INS_DISEXT
+
+		Case "ENEXT"
+			INS_ENEXT
+
+		Case "TENSPRITE"
+			INS_TENSPRITE
+
+		Case "STORERPL"
+			INS_STORERPL
+
+		Case "READRPL"
+			INS_READRPL
+
+		Case "DISMEGAMODE"
+			INS_DISMEGAMODE
+
+		Case "ENMEGAMODE"
+			INS_ENMEGAMODE
+
+		Case "LHDI"
+			INS_LHDI
+
+		Case "LOADCOLORS"
+			INS_LOADCOLORS
+
+		Case "SPRITEWIDTH"
+			INS_SPRITEWIDTH
+
+		Case "SPRITEHEIGHT"
+			INS_SPRITEHEIGHT
+
+		Case "SETALPHA"
+			INS_SETALPHA
+
+		Case "PLAYSOUND"
+			INS_PLAYSOUND
+
+		Case "STOPSOUND"
+			INS_STOPSOUND
+
+		Case "BLENDMODE"
+			INS_BLENDMODE
+
+		Case "SCROLLND"
+			INS_SCROLLND
+
+		Case Else
+			Cls
+			Print "Decoder error!"
+			Print "Opcode: " & Hex(cpu.opcode)
+			Print "Instruction: " & cpu.instruction
+			Print "Opcount: " & cpu.opcount
+			Print "PC: " & Hex(cpu.pc)
+			print "File address: " & hex(cpu.pc - &h200)
+			Sleep
+	End Select
+
+	render ' doing it this way with a framelimiter yeilds much lighter requirements than depending on the drawflag
+
+	If Timer-chipstart > 0.01667 Then ' 0.1667 is 1/60 of a second, these count down at 60hz
+		If cpu.delaytimer > 0 Then cpu.delaytimer-=1
+		If cpu.soundtimer > 0 Then cpu.soundtimer-=1
+		chipstart = Timer 'reset the timer
+	End If
+
+	If booping = 0 And cpu.soundtimer > 0 Then
+		booping = 1
+		soundplaytime = timer
+		playSFX(ExePath & "/boop.wav")
+	EndIf
+
+	If booping = 1 And cpu.soundtimer = 0 And (Timer - soundplaytime) > 0.1 Then
+		booping = 0
+		stopSFX
+	EndIf
+
+	If debug = 1 Then 'print debug infos
+		debugbox = ImageCreate(264,104,RGB(128,0,128))
+		Line debugbox, (1,1)-(262,102),RGB(128,0,128), BF
+		Line debugbox, (1,1)-(262,102),RGB(255,255,255),B
+		Draw String debugbox, (2,2), "Instruction: " & cpu.instruction
+		Draw String debugbox, (2, 12), "1-2-3-4-q-w-e-r-a-s-d-f-z-x-c-v"
+		Draw String debugbox, (2, 22), cpu.key(0) & "_" & cpu.key(1) & "_" & cpu.key(2) & "_" & cpu.key(3) & "_" & cpu.key(4) & "_" & cpu.key(5) & "_" & cpu.key(6) & "_" & cpu.key(7) & "_" & cpu.key(8) & "_" & cpu.key(9) & "_" & cpu.key(10) & "_" & cpu.key(11) & "_" & cpu.key(12) & "_" & cpu.key(13) & "_" & cpu.key(14) & "_" & cpu.key(15)
+		Draw String debugbox, (2, 32), "Delay timer: " & cpu.delayTimer
+		Draw String debugbox, (2, 42), "Sound timer: " & cpu.soundTimer
+		Draw String debugbox, (2, 52), "Speed(OPS) Goal: " & ops
+		Draw String debugbox, (2, 62), "Op/s: " & cpu.opcount / (Timer - start)
+		Draw String debugbox, (2, 72), "Emulator mode: " & cpu.mode
+		Draw String debugbox, (2, 82), "FPS: " & frames / (Timer - framestart)
+		Draw String debugbox, (2, 92), "Frame time: " & Format(frametime, "0.00000") & " | " & Format(1/frametime, "0.0000")
+		put (0,0),debugBox, pset
+		ImageDestroy(debugbox)
+	End If
+
+
+	If dosave = 1 Then saveState: dosave = 0: cpu.drawflag = 1: End if
+	If doload = 1 Then loadstate: doload = 0: cpu.drawflag = 1: End If
+	If msgcount > 0 Then
+		Draw String ((screenx/2) - (Len(msg)*4), screeny/2), msg, RGB(200,0,255)
+		msgcount -= 1
+		if msgcount = 0 then msg = ""
+	EndIf
+	If didlogo = 0 And cpu.opcount > 600 Then
+		didlogo = 1
+		initcpu
+		Cls
+		loadprog
+	EndIf
+	'this is for rewinding
+	If Timer - RewindTimer > .1 And didlogo = 1 And record = 1 Then
+		If maxrewind < 300 Then maxrewind + = 1
+		
+		ReDim Preserve displayRewind(0 To cpu.xres, 0 To cpu.yres, 1 To 300) As UByte
+		RewindTimer = Timer
+		For i As Integer = 300 To 2 Step -1
+			cpuRewind(i) = cpuRewind(i-1)
+			For y As Integer = 0 To cpu.yres
+				For x As Integer = 0 To cpu.xres
+					displayrewind(x,y,i) = displayRewind(x,y,i-1)
+				Next
 			Next
 		Next
-		cpu.drawflag = 1
-		render
-	Next
-End Sub
+		cpuRewind(1) = CPU
+		For y As Integer = 0 To cpu.yres
+			For x As Integer = 0 To cpu.xres
+				displayrewind(x,y,1) = display(x,y)
+			Next
+		Next
+	End if
+	If InKey = Chr(255) + "k" Then CAE
+Loop

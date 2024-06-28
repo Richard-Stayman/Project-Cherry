@@ -104,40 +104,49 @@ End Sub
 
 Sub INS_VXORVY '8XY1
 	cpu.v(vx) Or = cpu.v(vy)
+    cpu.v(&hF) = 0
 End Sub
 
 Sub INS_VXANDVY '8XY2
 	cpu.v(vx) And = cpu.v(vy)
-
+    cpu.v(&hF) = 0
 End Sub
 
 Sub INS_VXXORVY '8XY3
 	cpu.v(vx) Xor = cpu.v(vy)
+    cpu.v(&hF) = 0
 End Sub
 
 Sub INS_ADC '8XY4
-	If cpu.v(vx) + cpu.v(vy) > 255 Then cpu.v(&hF) = 1 Else cpu.v(&hF) = 0
-	cpu.v(vx) = cpu.v(vx) + cpu.v(vy)
+    cpu.v(vx) += cpu.v(vy)
+	If cpu.v(vx) >= cpu.v(vy) Then cpu.v(&hF) = 0 Else cpu.v(&hF) = 1
 End Sub
 
 Sub INS_SUBTRACT '8XY5
-	If cpu.v(vx) >= cpu.v(vy) Then cpu.v(&Hf) = 1 Else cpu.v(&hF) = 0
-	cpu.v(vx) -= cpu.v(vy)
+	If cpu.v(vx) >= cpu.v(vy) Then temp = 1 Else temp = 0
+    cpu.v(vx) -= cpu.v(vy)
+    cpu.v(&hF) = temp
+
 End Sub
 
 Sub INS_SHIFTR '8XY6
-	If Bit(cpu.v(vx),1) Then cpu.v(&hf) = 1 Else cpu.v(&hf) = 0
+    cpu.v(vx) = cpu.v(vy)
+	If Bit(cpu.v(vx),0) Then temp = 1 Else temp = 0
 	cpu.v(vx) = cpu.v(vx) Shr 1
+    cpu.v(&hf) = temp
 End Sub
 
 Sub INS_SUBN '8XY7
-	If cpu.v(vy) >= cpu.v(vx) Then cpu.v(&Hf) = 1 Else cpu.v(&hF) = 0
+	If cpu.v(vy) >= cpu.v(vx) Then temp = 1 Else temp = 0
 	cpu.v(vx) = cpu.v(vy) - cpu.v(vx)
+    cpu.v(&hf) = temp
 End Sub
 
 Sub INS_SHIFTL '8XYE
-	If Bit(cpu.v(vx),7) Then cpu.v(&hf) = 1 Else cpu.v(&hf) = 0
+    cpu.v(vx) = cpu.v(vy)
+	If Bit(cpu.v(vx),7) Then temp = 1 Else temp = 0
 	cpu.v(vx) = cpu.v(vx) Shl 1
+    cpu.v(&hf) = temp
 End Sub
 
 Sub INS_SKIPNOTEQUALREG '9XY0
@@ -233,7 +242,6 @@ Sub INS_SOUNDSET 'FX18
 End Sub
 
 Sub INS_IPLUSVX 'FX1E
-	If cpu.index + cpu.v(vx) > &hFFF Then cpu.v(&hf) = 1 Else cpu.v(&hf) = 0
 	cpu.index = cpu.index + cpu.v(vx)
 End Sub
 
@@ -258,14 +266,14 @@ Sub INS_STOREREG 'FX55
 	For I As Integer = 0 To vx
 		cpu.memory(cpu.index + i) = cpu.v(i)
 	Next
-	'cpu.index+= vx+1
+	cpu.index+= vx+1
 End Sub
 
 Sub INS_LOADREG 'FX65
 	For i As Integer = 0 To vx
 		cpu.v(i) = cpu.memory(cpu.index+i)
 	Next
-	'cpu.index+= vx+1
+	cpu.index+= vx+1
 End Sub
 Sub INS_SCROLLN '00CN
 	Dim As UByte N

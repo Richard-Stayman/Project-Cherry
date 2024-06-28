@@ -92,6 +92,7 @@ Dim Shared As fb.image Ptr debugbox 'debug box
 Dim Shared As Double start, chipstart 'start is used for opcode timing, chipstart for chip8 timers
 Dim Shared As Double rewindTimer = 0
 Dim Shared As UInteger VX, VY, KK 'Chip 8 vars
+Dim Shared As UInteger temp 'temp
 Dim Shared As UInteger screenx, screeny, ops 'screen size, and ops per second
 Dim Shared As UInteger foreR, foreG, foreB, backR, backG, backB 'screen colors
 Dim Shared As UInteger sfx, sfy 'scale factor for display
@@ -297,7 +298,7 @@ Sub about 'Display about section when HOME key is pressed
 	Put (screenx-128,screeny-148), cherry, Trans
 	Put (0,screeny-168), banner, Trans
 	Draw String (0, screeny-220), "___________________________________________________________________________"
-	Draw String (0, screeny-200), "FMOD audio library copyright © Firelight Technologies Pty, Ltd., 1994-2014."
+	Draw String (0, screeny-200), "FMOD audio library copyright Â© Firelight Technologies Pty, Ltd., 1994-2014."
 	Draw String (0, screeny-190), "http://www.fmod.org/"
 	Draw String (0, screeny-180), "FMOD is free for non-commercial use"
 	Draw String (0, screeny-20), "Compiled on: " + Str(__DATE__) + " at " + Str(__TIME__)

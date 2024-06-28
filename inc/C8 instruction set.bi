@@ -104,17 +104,17 @@ End Sub
 
 Sub INS_VXORVY '8XY1
 	cpu.v(vx) Or = cpu.v(vy)
-    cpu.v(&hF) = 0
+    If quirks = 1 Then cpu.v(&hF) = 0 Else
 End Sub
 
 Sub INS_VXANDVY '8XY2
 	cpu.v(vx) And = cpu.v(vy)
-    cpu.v(&hF) = 0
+    If quirks = 1 Then cpu.v(&hF) = 0 Else
 End Sub
 
 Sub INS_VXXORVY '8XY3
 	cpu.v(vx) Xor = cpu.v(vy)
-    cpu.v(&hF) = 0
+    If quirks = 1 Then cpu.v(&hF) = 0 Else
 End Sub
 
 Sub INS_ADC '8XY4
@@ -130,7 +130,7 @@ Sub INS_SUBTRACT '8XY5
 End Sub
 
 Sub INS_SHIFTR '8XY6
-    cpu.v(vx) = cpu.v(vy)
+    If quirks = 1 Then cpu.v(vx) = cpu.v(vy) Else cpu.v(vx) = cpu.v(vx)
 	If Bit(cpu.v(vx),0) Then temp = 1 Else temp = 0
 	cpu.v(vx) = cpu.v(vx) Shr 1
     cpu.v(&hf) = temp
@@ -143,7 +143,7 @@ Sub INS_SUBN '8XY7
 End Sub
 
 Sub INS_SHIFTL '8XYE
-    cpu.v(vx) = cpu.v(vy)
+    If quirks = 1 Then cpu.v(vx) = cpu.v(vy) Else cpu.v(vx) = cpu.v(vx)
 	If Bit(cpu.v(vx),7) Then temp = 1 Else temp = 0
 	cpu.v(vx) = cpu.v(vx) Shl 1
     cpu.v(&hf) = temp
@@ -179,7 +179,7 @@ Sub INS_DISPLAY 'DXYN
 			For x As Integer = 0 To 7
 				If (p And (&h80 Shr x)) Then
 				If hack <> 0 Then
-						If cpu.v(vx)+x > cpu.xres Then Exit For 
+						If cpu.v(vx)+x > cpu.xres Then Exit For
 						If hack <> 2 and cpu.v(vy)+y > cpu.yres Then Exit for
 				EndIf
 					If display((cpu.v(vx)+x) And cpu.xres, (cpu.v(vy)+y) And cpu.yres) Then cpu.v(&hf) = 1
@@ -229,7 +229,7 @@ Sub INS_KEYWAIT 'FX0A
 				Exit Do
 			EndIf
 		Next
-		 render 
+		 render
 	Loop
 End Sub
 
@@ -266,14 +266,14 @@ Sub INS_STOREREG 'FX55
 	For I As Integer = 0 To vx
 		cpu.memory(cpu.index + i) = cpu.v(i)
 	Next
-	cpu.index+= vx+1
+    If quirks = 1 Then cpu.index+= vx+1 Else 
 End Sub
 
 Sub INS_LOADREG 'FX65
 	For i As Integer = 0 To vx
 		cpu.v(i) = cpu.memory(cpu.index+i)
 	Next
-	cpu.index+= vx+1
+	 If quirks = 1 Then cpu.index+= vx+1 Else 
 End Sub
 Sub INS_SCROLLN '00CN
 	Dim As UByte N
@@ -376,28 +376,28 @@ Sub INS_ENMEGAMODE
 	cpu.opcount = 0
 End Sub
 Sub INS_LHDI
-	
+
 End Sub
 Sub INS_LOADCOLORS
-	
+
 End Sub
 Sub INS_SPRITEWIDTH
-	
+
 End Sub
 Sub INS_SPRITEHEIGHT
-	
+
 End Sub
 Sub INS_SETALPHA
-	
+
 End Sub
 Sub INS_PLAYSOUND
-	
+
 End Sub
 Sub INS_STOPSOUND
-	
+
 End Sub
 Sub INS_BLENDMODE
-	
+
 End Sub
 Sub INS_SCROLLND
 	Dim As UByte N

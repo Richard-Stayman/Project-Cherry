@@ -93,7 +93,8 @@ Dim Shared As Double start, chipstart 'start is used for opcode timing, chipstar
 Dim Shared As Double rewindTimer = 0
 Dim Shared As UInteger VX, VY, KK 'Chip 8 vars
 Dim Shared As UInteger temp 'temp
-Dim Shared As UByte quirks = 1 'quirks, VIP = 1 and SCHIP = 0
+Dim Shared As UInteger comment 'Used for commenting in the INI
+Dim Shared As UByte quirks 'quirks, VIP = 1 and SCHIP = 0
 Dim Shared As UInteger screenx, screeny, ops 'screen size, and ops per second
 Dim Shared As UInteger foreR, foreG, foreB, backR, backG, backB 'screen colors
 Dim Shared As UInteger sfx, sfy 'scale factor for display
@@ -314,41 +315,81 @@ Sub loadini
 	Dim f As Integer = FreeFile
 	If Not FileExists(ExePath & "\cherry.ini") Then
 		Open ExePath & "\cherry.ini" For Output As #f 'Write a new INI file since it got deleted or something
+        Print #f, "Resolution width"
 		Print #f, 640 'screenX
+        Print #f, "Resolution height"
 		Print #f, 480 'screenY
+        Print #f, "Ops Per Second Goal"
 		Print #f, 360 'Ops per second goal
+        Print #f, "Foreground colors"
 		Print #f, 255 'Foreground Red
 		Print #f, 255 'Foreground Green
 		Print #f, 255 'Foreground Blue
+        Print #f, "Background colors"
 		Print #f, 0 'Background Red
 		Print #f, 0 'Background Green
 		Print #f, 0 'Background Blue
-		Print #f, 0 '1 for random color lines
+        Print #f, "Random colors"
+		Print #f, 1 '1 for random color lines
+        Print #f, "Correct Aspect Scaling"
 		Print #f, 1' 1 for aspect correct scaling
+        Print #f, "Mute On"
 		Print #f, 0 'mute on
+        Print #f, "Record On"
 		Print #f, 0 'record on
+        Print #f, "Quirks. 1 = VIP quirks, 0 = SCHIP quirks"
+        Print #f, 1 'quirks setting
 		Close #f
 	EndIf
 	Open ExePath & "\cherry.ini" For Input As #f
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
 	Input #f, screenx
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
 	Input #f, screeny
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
 	Input #f, ops
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
 	Input #f, foreR
 	Input #f, foreG
 	Input #f, foreB
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
 	Input #f, backR
 	Input #f, backG
 	Input #f, backB
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
 	Input #f, Colorlines
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
 	input #f, aspect
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
 	Input #f, mute
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
 	Input #f, record
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
+    Input #f, comment 'Used for commenting in INI
+    Input #f, quirks
 	Close #f
 	If screenx < 640 Then screenx = 640
 	If screeny < 480 Then screeny = 480
 End Sub
-
-
 
 Sub keycheck 'Check for keypresses, and pass to the emulated CPU
 	Dim As UInteger rewindpoint = 1
@@ -410,12 +451,9 @@ Sub keycheck 'Check for keypresses, and pass to the emulated CPU
 	If MultiKey(SC_ESCAPE) Then 'quit
 		CAE
 	EndIf
-    If MultiKey(SC_J) Then 'switch to CHIP-8 (VIP) mode
-        quirks = 1
-    Endif
-    If MultiKey(SC_K) Then 'switch to SCHIP mode
-        quirks = 0
-    Endif
+    If MultiKey(SC_MINUS) Then 'switch quirks modes
+        if quirks = 1 then quirks = 0 else quirks = 1
+        endif
 	If MultiKey(SC_HOME) Then 'about
 		about
 		Cls

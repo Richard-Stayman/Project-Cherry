@@ -92,6 +92,9 @@ Dim Shared As fb.image Ptr debugbox 'debug box
 Dim Shared As Double start, chipstart 'start is used for opcode timing, chipstart for chip8 timers
 Dim Shared As Double rewindTimer = 0
 Dim Shared As UInteger VX, VY, KK 'Chip 8 vars
+Dim Shared As UInteger temp 'temp
+Dim Shared As UInteger comment 'Used for commenting in the INI
+Dim Shared As UByte quirks 'quirks, VIP = 1 and SCHIP = 0
 Dim Shared As UInteger screenx, screeny, ops 'screen size, and ops per second
 Dim Shared As UInteger foreR, foreG, foreB, backR, backG, backB 'screen colors
 Dim Shared As UInteger sfx, sfy 'scale factor for display
@@ -297,7 +300,7 @@ Sub about 'Display about section when HOME key is pressed
 	Put (screenx-128,screeny-148), cherry, Trans
 	Put (0,screeny-168), banner, Trans
 	Draw String (0, screeny-220), "___________________________________________________________________________"
-	Draw String (0, screeny-200), "FMOD audio library copyright © Firelight Technologies Pty, Ltd., 1994-2014."
+	Draw String (0, screeny-200), "FMOD audio library copyright Â© Firelight Technologies Pty, Ltd., 1994-2014."
 	Draw String (0, screeny-190), "http://www.fmod.org/"
 	Draw String (0, screeny-180), "FMOD is free for non-commercial use"
 	Draw String (0, screeny-20), "Compiled on: " + Str(__DATE__) + " at " + Str(__TIME__)
@@ -312,41 +315,61 @@ Sub loadini
 	Dim f As Integer = FreeFile
 	If Not FileExists(ExePath & "\cherry.ini") Then
 		Open ExePath & "\cherry.ini" For Output As #f 'Write a new INI file since it got deleted or something
+        Print #f, "Resolution width"
 		Print #f, 640 'screenX
+        Print #f, "Resolution height"
 		Print #f, 480 'screenY
+        Print #f, "Ops Per Second Goal"
 		Print #f, 360 'Ops per second goal
+        Print #f, "Foreground colors"
 		Print #f, 255 'Foreground Red
 		Print #f, 255 'Foreground Green
 		Print #f, 255 'Foreground Blue
+        Print #f, "Background colors"
 		Print #f, 0 'Background Red
 		Print #f, 0 'Background Green
 		Print #f, 0 'Background Blue
+        Print #f, "Random colors"
 		Print #f, 0 '1 for random color lines
+        Print #f, "Correct Aspect Scaling"
 		Print #f, 1' 1 for aspect correct scaling
+        Print #f, "Mute"
 		Print #f, 0 'mute on
+        Print #f, "Record"
 		Print #f, 0 'record on
+        Print #f, "Quirks"
+        Print #f, 1 'quirks setting
 		Close #f
 	EndIf
 	Open ExePath & "\cherry.ini" For Input As #f
+    Input #f, comment, comment 'Used for commenting in INI
 	Input #f, screenx
+    Input #f, comment, comment 'Used for commenting in INI
 	Input #f, screeny
+    Input #f, comment, comment, comment, comment 'Used for commenting in INI
 	Input #f, ops
+    Input #f, comment, comment 'Used for commenting in INI
 	Input #f, foreR
 	Input #f, foreG
 	Input #f, foreB
+    Input #f, comment, comment 'Used for commenting in INI
 	Input #f, backR
 	Input #f, backG
 	Input #f, backB
+    Input #f, comment, comment 'Used for commenting in INI
 	Input #f, Colorlines
+    Input #f, comment, comment, comment 'Used for commenting in INI
 	input #f, aspect
+    Input #f, comment 'Used for commenting in INI
 	Input #f, mute
+    Input #f, comment 'Used for commenting in INI
 	Input #f, record
+    Input #f, comment 'Used for commenting in INI
+    Input #f, quirks
 	Close #f
 	If screenx < 640 Then screenx = 640
 	If screeny < 480 Then screeny = 480
 End Sub
-
-
 
 Sub keycheck 'Check for keypresses, and pass to the emulated CPU
 	Dim As UInteger rewindpoint = 1
@@ -408,6 +431,9 @@ Sub keycheck 'Check for keypresses, and pass to the emulated CPU
 	If MultiKey(SC_ESCAPE) Then 'quit
 		CAE
 	EndIf
+    If MultiKey(SC_MINUS) Then 'switch quirks modes
+        if quirks = 1 then quirks = 0 else quirks = 1
+        Endif
 	If MultiKey(SC_HOME) Then 'about
 		about
 		Cls

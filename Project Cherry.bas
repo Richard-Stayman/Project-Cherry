@@ -42,7 +42,6 @@ Copyright 2014 Blyss Sarania'/
 Using FB 'FB namespace
 #Include Once "file.bi" ' file manipulation
 #Include Once "string.bi" ' string manipulation
-#Include Once "fmod.bi" ' a whole audio library just for boop sounds!
 #Include Once "inc/crc32.bi"
 Dim Shared As UByte debug = 0' 1 to show debug, 0 to not show
 
@@ -116,7 +115,7 @@ Declare Sub CAE 'cleanup and exit
 Declare Sub render 'render the display
 Declare Sub colorit
 Declare Sub playSFX(SFX As String) ' play the boop sound
-#Include Once "inc/c8 instruction set.bi" 'these must go here because depend on cpu type
+#Include Once "inc/C8 instruction set.bi" 'these must go here because depend on cpu type
 #Include Once "inc/decoder.bi" 'same
 
 
@@ -166,18 +165,9 @@ Declare Sub saveState
 Declare Sub loadstate
 
 Sub playSFX (SFX As String)
-	If mute=0 Then
-		trackHandle = FSOUND_Stream_Open(SFX, FSOUND_LOOP_NORMAL, 0, 0 )
-		FSOUND_Stream_Play(1, trackHandle)
-		FSOUND_SetVolumeAbsolute(1, 255)
-	End If
 End Sub
 
 Sub stopSFX
-	If FSOUND_IsPlaying(1) Then
-		FSOUND_Stream_Stop(trackHandle)
-		FSOUND_Stream_Close(trackHandle)
-	End If
 End Sub
 
 Sub colorit
@@ -619,7 +609,7 @@ Sub loadprog(ByVal pn As String = "") 'Load a ROM
 	End If
 	Print "Note: ROM must be in EXEPATH, else use drag and drop to load it!)"
 	Input "Program to run (compiled, no header): ", progname 'Get a filename from user
-	progname = ExePath & "\" & progname
+	progname = ExePath & "/" & progname
 
 	gotname:
 	If progname = "" Or Not FileExists(progname) Then 'Break if no such filename
@@ -632,7 +622,7 @@ Sub loadprog(ByVal pn As String = "") 'Load a ROM
 	'remove path from filename, so we can put it in the Window title
 	For z As Integer = 1 To Len(progname) Step 1
 		onechr = Right(Left(progname,z),1)
-		If onechr = "\" Then
+		If onechr = "/" Then
 			onechr = ""
 			shpname = ""
 		EndIf
@@ -679,7 +669,6 @@ End Sub
 
 Sub CAE 'Cleanup and Exit
 	While InKey <> "": wend
-	FSOUND_Close
 	Cls
 	Close
 	Draw String ((screenx/2) - 64,screeny/2), "Emulation ended.", RGB(255,0,255)
@@ -697,7 +686,6 @@ ScreenRes screenx,screeny,32
 If colorlines Then colorit
 sfx = screenx/(cpu.xres+1) 'compute the scale factor for X
 sfy = iif(aspect = 0, screeny/(cpu.yres+1), sfx) ' and Y
-FSOUND_Init(44100, 8, 0)
 initcpu
 if debug = 1 then: didlogo=1: loadprog: GoTo skiplogo:EndIf
 ChDir ExePath
